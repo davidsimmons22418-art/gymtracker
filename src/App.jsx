@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+// ─── DISABLE ZOOM ─────────────────────────────────────────────────────────────
+(function() {
+  let meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; document.head.appendChild(meta); }
+  meta.content = 'width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no';
+})();
+
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const STORAGE_KEY   = "ironlog_workouts";
 const PRO_KEY       = "ironlog_pro";
@@ -1498,6 +1505,7 @@ function GlobalStyles() {
       @keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
       @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
       @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+      html{touch-action:pan-x pan-y;}
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
       body{background:#1A1F28;color:#D8E2F0;font-family:'Barlow',sans-serif;min-height:100vh;overflow-x:hidden;}
       #root{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;background:#1C2230;}
