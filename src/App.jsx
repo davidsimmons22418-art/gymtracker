@@ -565,16 +565,26 @@ function CalMonth({ year, month, workoutDates, selected, onSelect }) {
 // ─── LONG TERM / CALENDAR SCREEN ──────────────────────────────────────────────
 function LongTermScreen({ workouts }) {
   const now=new Date();
+  const wDates=new Set(workouts.map(w=>w.date));
+  const sorted=[...wDates].sort();
+
+  // Start from the month of the first workout, or current month if none
+  const firstDate = sorted.length ? new Date(sorted[0]) : now;
+  const startY = firstDate.getFullYear();
+  const startM = firstDate.getMonth();
+
   const [yr,setYr]=useState(now.getFullYear());
   const [mo,setMo]=useState(now.getMonth());
   const [selDate,setSelDate]=useState(null);
 
-  const wDates=new Set(workouts.map(w=>w.date));
   const selWorkout=selDate?workouts.find(w=>w.date===selDate):null;
-  const prevMo=()=>{if(mo===0){setYr(y=>y-1);setMo(11);}else setMo(m=>m-1);};
-  const nextMo=()=>{if(mo===11){setYr(y=>y+1);setMo(0);}else setMo(m=>m+1);};
 
-  const sorted=[...wDates].sort();
+  // Only allow navigating back to the first workout's month
+  const atStart = yr===startY && mo===startM;
+  const atEnd   = yr===now.getFullYear() && mo===now.getMonth();
+  const prevMo=()=>{ if(atStart) return; if(mo===0){setYr(y=>y-1);setMo(11);}else setMo(m=>m-1); };
+  const nextMo=()=>{ if(atEnd) return;   if(mo===11){setYr(y=>y+1);setMo(0);}else setMo(m=>m+1); };
+
   let longest=0,cur=0;
   for(let i=0;i<sorted.length;i++){
     cur=i===0?1:(new Date(sorted[i])-new Date(sorted[i-1]))/86400000===1?cur+1:1;
@@ -586,12 +596,15 @@ function LongTermScreen({ workouts }) {
     else break;
   }
 
-  const months=[];
-  for(let offset=-5;offset<=0;offset++){
-    let m=mo+offset,y=yr;
-    while(m<0){m+=12;y--;}while(m>11){m-=12;y++;}
-    months.push({y,m});
+  // Build months from startY/startM up to current yr/mo (max 6 shown ending at selected month)
+  const allMonths=[];
+  let my=startY, mm=startM;
+  while(my<yr||(my===yr&&mm<=mo)){
+    allMonths.push({y:my,m:mm});
+    mm++; if(mm>11){mm=0;my++;}
   }
+  // Show up to 6 months ending at the currently-viewed month
+  const months=allMonths.slice(-6);
 
   const streakCards = [
     {v:curStreak, l:"CURRENT STREAK", icon:<Icons.Streak size={18} color="#2196F3"/>},
@@ -625,9 +638,9 @@ function LongTermScreen({ workouts }) {
       <div className="section-heading">
         <span>CALENDAR</span>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
-          <button className="cal-nav-btn" onClick={prevMo}><Icons.ChevronLeft size={14} color="#9BAAC8"/></button>
+          <button className="cal-nav-btn" onClick={prevMo} style={{opacity:atStart?0.25:1,cursor:atStart?"default":"pointer"}}><Icons.ChevronLeft size={14} color="#9BAAC8"/></button>
           <span style={{fontFamily:"'DM Mono',monospace",fontSize:"11px",color:"#8A9AB8",minWidth:78,textAlign:"center"}}>{MONTH_NAMES[mo]} {yr}</span>
-          <button className="cal-nav-btn" onClick={nextMo}><Icons.ChevronRight size={14} color="#9BAAC8"/></button>
+          <button className="cal-nav-btn" onClick={nextMo} style={{opacity:atEnd?0.25:1,cursor:atEnd?"default":"pointer"}}><Icons.ChevronRight size={14} color="#9BAAC8"/></button>
         </div>
       </div>
 
