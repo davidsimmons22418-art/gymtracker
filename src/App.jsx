@@ -871,6 +871,19 @@ function WorkoutEditor({ initial, workouts, saveWorkouts, isPro, onPaywall, user
   const customExNames = workouts.flatMap(w=>w.exercises.map(e=>e.name)).filter(n=>!PRESET_EXERCISES.includes(n));
   const uniqueCustom  = [...new Set(customExNames)];
 
+  // All known exercises = presets + any ever used
+  const allKnownExercises = [...new Set([...PRESET_EXERCISES, ...uniqueCustom])];
+
+  // Look up last performance for an exercise (most recent past workout, not today's)
+  const getLastPerf = (name) => {
+    const past = [...workouts]
+      .filter(w => w.id !== draft.id && w.exercises.find(e=>e.name===name))
+      .sort((a,b)=>b.date.localeCompare(a.date));
+    if (!past.length) return null;
+    const ex = past[0].exercises.find(e=>e.name===name);
+    return { date: past[0].date, sets: ex.sets };
+  };
+
   const TEMPLATE_ICONS = {
     "Push Day":<Icons.ArrowUp size={20} color="#38BDF8"/>,
     "Pull Day":<Icons.Rotate size={20} color="#38BDF8"/>,
@@ -880,10 +893,13 @@ function WorkoutEditor({ initial, workouts, saveWorkouts, isPro, onPaywall, user
   };
 
   const addEx = (name) => {
-    if (!PRESET_EXERCISES.includes(name) && !isPro && uniqueCustom.length>=FREE_CUSTOM_EX_LIMIT && !draft.exercises.find(e=>e.name===name)) {
-      onPaywall(); return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    // Auto-register custom exercises so they appear in the list permanently
+    if (!PRESET_EXERCISES.includes(trimmed) && !uniqueCustom.includes(trimmed)) {
+      if (!isPro && uniqueCustom.length >= FREE_CUSTOM_EX_LIMIT) { onPaywall(); return; }
     }
-    update({...draft, exercises:[...draft.exercises,{id:genId(),name,sets:[{id:genId(),weight:"",reps:"",rpe:""}],supersetGroup:null}]});
+    update({...draft, exercises:[...draft.exercises,{id:genId(),name:trimmed,sets:[{id:genId(),weight:"",reps:"",rpe:""}],supersetGroup:null}]});
     setShowPicker(false); setShowTemplates(false); setCustomEx("");
   };
 
@@ -978,7 +994,9 @@ function WorkoutEditor({ initial, workouts, saveWorkouts, isPro, onPaywall, user
     return rendered;
   };
 
-  const renderExCard = (ex, inSuperset) => (
+  const renderExCard = (ex, inSuperset) => {
+    const lastPerf = getLastPerf(ex.name);
+    return (
     <div key={ex.id} className={`exercise-card ${supersetMode&&supersetSelected.includes(ex.id)?"selected":""} ${inSuperset?"in-superset":""}`}
       onClick={supersetMode?()=>toggleSupersetSelect(ex.id):undefined}
       style={supersetMode?{cursor:"pointer",outline:supersetSelected.includes(ex.id)?"2px solid #38BDF8":"2px solid transparent",outlineOffset:"-2px"}:{}}>
@@ -1004,35 +1022,71 @@ function WorkoutEditor({ initial, workouts, saveWorkouts, isPro, onPaywall, user
         </div>
       </div>
 
+      {/* Previous performance banner */}
+      {lastPerf&&(
+        <div className="prev-perf-banner">
+          <span className="prev-perf-label">LAST · {fmtDateShort(lastPerf.date)}</span>
+          <span className="prev-perf-sets">
+            {lastPerf.sets.map((s,i)=>(
+              <span key={i} className="prev-perf-set">
+                {s.weight||"—"}kg×{s.reps||"—"}{s.rpe?<span style={{color:"#586070"}}> @{s.rpe}</span>:null}
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:gridCols,gap:"5px",marginBottom:"5px",
         fontFamily:"'DM Mono',monospace",fontSize:"9px",color:"#586070",letterSpacing:"1.5px"}}>
         <span>#</span><span>KG</span><span>REPS</span>{showRpe&&<span style={{color:"#2196F3aa"}}>RPE</span>}<span/><span/>
       </div>
 
-      {ex.sets.map((s,i)=>(
-        <div key={s.id} style={{display:"grid",gridTemplateColumns:gridCols,gap:"5px",marginBottom:"5px",alignItems:"center"}}>
-          <div style={{fontFamily:"'itc-avant-garde-gothic-pro',sans-serif",fontWeight:300,fontStyle:"italic",fontSize:"14px",color:"#2196F3",textAlign:"center"}}>{i+1}</div>
-          <input className="set-input" type="number" placeholder="0" min="0" step="0.5" value={s.weight} onChange={e=>updSet(ex.id,s.id,"weight",e.target.value)}/>
-          <input className="set-input" type="number" placeholder="0" min="0" value={s.reps} onChange={e=>updSet(ex.id,s.id,"reps",e.target.value)}/>
-          {showRpe&&<input className="set-input rpe-input" type="number" placeholder="—" min="1" max="10" step="0.5" value={s.rpe||""} onChange={e=>updSet(ex.id,s.id,"rpe",e.target.value)}/>}
-          {i===ex.sets.length-1 ? (
-            <button className="icon-btn copy-set-btn" title="Copy to next set" onClick={()=>copyLastSet(ex.id)}>
-              <Icons.CopySet size={12} color="#38BDF8"/>
-            </button>
-          ) : <span/>}
-          <button className="icon-btn" onClick={()=>remSet(ex.id,s.id)}><Icons.Minus size={13} color="#7080A0"/></button>
-        </div>
-      ))}
+      {ex.sets.map((s,i)=>{
+        const prevSet = lastPerf?.sets[i];
+        return (
+          <div key={s.id}>
+            <div style={{display:"grid",gridTemplateColumns:gridCols,gap:"5px",marginBottom:"2px",alignItems:"center"}}>
+              <div style={{fontFamily:"'itc-avant-garde-gothic-pro',sans-serif",fontWeight:300,fontStyle:"italic",fontSize:"14px",color:"#2196F3",textAlign:"center"}}>{i+1}</div>
+              <input className="set-input" type="number" placeholder={prevSet?.weight||"0"} min="0" step="0.5" value={s.weight} onChange={e=>updSet(ex.id,s.id,"weight",e.target.value)}/>
+              <input className="set-input" type="number" placeholder={prevSet?.reps||"0"} min="0" value={s.reps} onChange={e=>updSet(ex.id,s.id,"reps",e.target.value)}/>
+              {showRpe&&<input className="set-input rpe-input" type="number" placeholder="—" min="1" max="10" step="0.5" value={s.rpe||""} onChange={e=>updSet(ex.id,s.id,"rpe",e.target.value)}/>}
+              {i===ex.sets.length-1 ? (
+                <button className="icon-btn copy-set-btn" title="Copy to next set" onClick={()=>copyLastSet(ex.id)}>
+                  <Icons.CopySet size={12} color="#38BDF8"/>
+                </button>
+              ) : <span/>}
+              <button className="icon-btn" onClick={()=>remSet(ex.id,s.id)}><Icons.Minus size={13} color="#7080A0"/></button>
+            </div>
+            {prevSet&&(
+              <div className="prev-set-hint">
+                <span style={{color:"#3A4A60",marginRight:4}}>prev:</span>
+                {prevSet.weight&&<span>{prevSet.weight}kg</span>}
+                {prevSet.weight&&prevSet.reps&&<span style={{color:"#3A4A60",margin:"0 2px"}}>×</span>}
+                {prevSet.reps&&<span>{prevSet.reps}</span>}
+                {prevSet.rpe&&<span style={{color:"#3A4A60",marginLeft:3}}>@{prevSet.rpe}</span>}
+              </div>
+            )}
+          </div>
+        );
+      })}
       <button className="add-set-btn" onClick={()=>addSet(ex.id)}>+ ADD SET</button>
     </div>
   );
+  };
 
   return (
     <div className="screen">
       {/* Header */}
       <div className="screen-header">
         <div style={{flex:1}}>
-          <div className="screen-label">{isNew?"NEW WORKOUT":onClose?"EDIT WORKOUT":"TODAY'S WORKOUT"}</div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:2}}>
+            {onClose&&(
+              <button onClick={onClose} style={{background:"transparent",border:"none",color:"#5C7090",cursor:"pointer",display:"flex",alignItems:"center",gap:5,padding:0,fontFamily:"'DM Mono',monospace",fontSize:"10px",letterSpacing:"1px",flexShrink:0}}>
+                <Icons.ChevronLeft size={16} color="#5C7090"/> BACK
+              </button>
+            )}
+            <div className="screen-label">{isNew?"NEW WORKOUT":onClose?"EDIT WORKOUT":"TODAY'S WORKOUT"}</div>
+          </div>
           <button className="date-edit-btn" onClick={()=>setShowDatePicker(true)}>
             {fmtDate(draft.date)}
             <Icons.Edit size={11} color="#5C7090"/>
@@ -1044,7 +1098,7 @@ function WorkoutEditor({ initial, workouts, saveWorkouts, isPro, onPaywall, user
           <button onClick={()=>setShowNotes(r=>!r)} className="toggle-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"5px 8px",borderColor:showNotes?"#38BDF8":"#485468",background:showNotes?"#0A1929":"#2A3040"}}>
             <Icons.Note size={14} color={showNotes?"#38BDF8":"#8A9AB8"}/>
           </button>
-          {!isNew&&onClose&&<button className="icon-btn danger" onClick={()=>setConfirmDelete(true)} title="Delete workout"><Icons.Trash size={14} color="#7080A0"/></button>}
+          {onClose&&!isNew&&<button className="icon-btn danger" onClick={()=>setConfirmDelete(true)} title="Delete workout"><Icons.Trash size={14} color="#7080A0"/></button>}
         </div>
       </div>
 
@@ -1101,7 +1155,6 @@ function WorkoutEditor({ initial, workouts, saveWorkouts, isPro, onPaywall, user
           ? <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><Icons.Check size={18} color="#4CAF50"/> SAVED</span>
           : dirty?"SAVE WORKOUT":"NO CHANGES"}
       </button>
-      {onClose&&<button onClick={onClose} style={{background:"transparent",border:"none",color:"#586070",cursor:"pointer",fontFamily:"'DM Mono',monospace",fontSize:"11px",letterSpacing:"2px",marginTop:8,width:"100%",textAlign:"center",padding:"6px"}}>CANCEL</button>}
 
       {/* Exercise Picker */}
       {showPicker&&(
@@ -1109,10 +1162,21 @@ function WorkoutEditor({ initial, workouts, saveWorkouts, isPro, onPaywall, user
           <div className="modal" onClick={e=>e.stopPropagation()}>
             <div className="modal-title">ADD EXERCISE</div>
             <div className="custom-ex-row">
-              <input className="custom-ex-input" placeholder="Custom exercise name..." value={customEx}
+              <input className="custom-ex-input" placeholder="New custom exercise..." value={customEx}
                 onChange={e=>setCustomEx(e.target.value)} onKeyDown={e=>e.key==="Enter"&&customEx.trim()&&addEx(customEx.trim())}/>
               <button className="custom-ex-add" disabled={!customEx.trim()} onClick={()=>customEx.trim()&&addEx(customEx.trim())}>ADD</button>
             </div>
+            {uniqueCustom.length>0&&(
+              <>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:"9px",color:"#586070",letterSpacing:"2px",marginBottom:6,marginTop:4}}>MY EXERCISES</div>
+                <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+                  {uniqueCustom.filter(p=>!draft.exercises.find(e=>e.name===p)).map(p=>(
+                    <button key={p} className="preset-item" style={{borderLeft:"2px solid #38BDF866"}} onClick={()=>addEx(p)}>{p}</button>
+                  ))}
+                </div>
+              </>
+            )}
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:"9px",color:"#586070",letterSpacing:"2px",marginBottom:6}}>EXERCISES</div>
             <div className="preset-list">
               {PRESET_EXERCISES.filter(p=>!draft.exercises.find(e=>e.name===p)).map(p=>(
                 <button key={p} className="preset-item" onClick={()=>addEx(p)}>{p}</button>
@@ -1524,7 +1588,7 @@ function GlobalStyles() {
       #root{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;background:#1C2230;}
 
       .topbar{background:#1C2230;border-bottom:1px solid #2D3A50;padding:12px 16px 10px;display:flex;align-items:flex-end;flex-shrink:0;position:sticky;top:0;z-index:40;backdrop-filter:blur(10px);}
-      .app-logo{font-family:'itc-avant-garde-gothic-pro',sans-serif;font-weight:300;font-style:italic;font-size:22px;color:#2196F3;letter-spacing:4px;line-height:1;}
+      .app-logo{font-family:'itc-avant-garde-gothic-pro',sans-serif;font-weight:300;font-style:italic;font-size:22px;color:#4CAF50;letter-spacing:4px;line-height:1;}
       .app-tagline{font-family:'DM Mono',monospace;font-size:9px;color:#505C74;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px;}
 
       .screen{flex:1;padding:18px 14px 112px;overflow-y:auto;animation:fadeUp .2s ease;}
@@ -1661,6 +1725,11 @@ function GlobalStyles() {
 
       .date-edit-btn{background:transparent;border:none;color:#8A9AB8;cursor:pointer;font-family:'itc-avant-garde-gothic-pro',sans-serif;font-weight:300;font-style:italic;font-size:20px;display:flex;align-items:center;gap:7px;padding:0;margin-top:2px;}
       .date-edit-btn:hover{color:#D0DAEC;}
-`}</style>
+
+      .prev-perf-banner{background:#111823;border:1px solid #1E2A3A;border-radius:5px;padding:6px 10px;margin-bottom:9px;display:flex;flex-direction:column;gap:3px;}
+      .prev-perf-label{font-family:'DM Mono',monospace;font-size:8px;color:#2D4A6A;letter-spacing:1.5px;font-weight:600;}
+      .prev-perf-sets{display:flex;flex-wrap:wrap;gap:6px;}
+      .prev-perf-set{font-family:'DM Mono',monospace;font-size:10px;color:#3D6A8A;background:#0D1E2E;border:1px solid #1A3348;border-radius:3px;padding:2px 6px;}
+      .prev-set-hint{font-family:'DM Mono',monospace;font-size:9px;color:#2D4A6A;text-align:center;padding-bottom:5px;letter-spacing:0.5px;}`}</style>
   );
 }
